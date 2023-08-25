@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: This template creates VPC Peering and Instances Example.
+
+# This template creates:
+#   VPC
+#   Peering VPC
+#   Route Table
+#   Subnet
+#   Security Group
+#   EC2
+
+######################
+# Parameters section
+######################
+
+Parameters:
+  LaunchTemplateVersionNumber:
+    Default: 1
+    Type: String
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the instances
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    Default: vockey
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+  SSHLocation:
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+    Default: 0.0.0.0/0
+    Description: The IP address range that can be used to access the web server using SSH.
+    MaxLength: '18'
+    MinLength: '9'
+    Type: String
+
+    
+######################
+# Resources section
+######################
+
+Resources:
+  Vpc1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: TR-VPC-1
+
+  Vpc2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.3.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: TR-VPC-2      
+
+  InternetGateway1:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TR-IGW-1
+          
+  InternetGateway2:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TR-IGW-2
+ 
+  AttachGateway1:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc1
+      InternetGatewayId: !Ref InternetGateway1          
+                    
+  AttachGateway2:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc2
+      InternetGatewayId: !Ref InternetGateway2      
+      
+  PeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      PeerVpcId: !Ref Vpc2
+      VpcId: !Ref Vpc1
+
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc1
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.2.0.0/24
+      Tags:
+        - Key: Name
+          Value: TR Subnet 1
+          
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc2
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.3.0.0/24
+      Tags:
+        - Key: Name
+          Value: TR Subnet 2
+
+  RouteTableVpc1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc1
+      
+  RouteTableVpc2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc2
+
+  PublicRouteVpc1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTableVpc1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway1      
+  
+  PublicRouteVpc2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTableVpc2
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway2
+    
+  Subnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTableVpc1
+      SubnetId: !Ref Subnet1      
+    
+  Subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTableVpc2
+      SubnetId: !Ref Subnet2      
+      
+  PeeringRouteTable1:
+    Type: AWS::EC2::Route
+    DependsOn: PeeringConnection
+    Properties:
+      DestinationCidrBlock: 10.3.1.0/24
+      RouteTableId: !Ref RouteTableVpc1
+      VpcPeeringConnectionId: !Ref PeeringConnection
+
+  PeeringRouteTable2:
+    Type: AWS::EC2::Route
+    DependsOn: PeeringConnection
+    Properties:
+      DestinationCidrBlock: 10.2.0.0/16
+      RouteTableId: !Ref RouteTableVpc2
+      VpcPeeringConnectionId: !Ref PeeringConnection
+
+  InstanceSecurityGroup1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ICMP and SSH traffic
+      VpcId: !Ref Vpc1
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SG-TR1
+          
+  InstanceSecurityGroup2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ICMP and SSH traffic
+      VpcId: !Ref Vpc2
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SG-TR2  
+    
+  Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-0aa7d40eeae50c9a9
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          GroupSet: 
+            - !Ref InstanceSecurityGroup1
+          SubnetId: !Ref Subnet1
+          AssociatePublicIpAddress: true
+      Tags:
+        - Key: Name
+          Value: TR-server-1
+
+  Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-0aa7d40eeae50c9a9
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          GroupSet: 
+            - !Ref InstanceSecurityGroup2
+          SubnetId: !Ref Subnet2
+          AssociatePublicIpAddress: true
+      Tags:
+        - Key: Name
+          Value: TR-server-2
+          
+          
+######################
+# Outputs section
+######################
+
+
